@@ -40,6 +40,7 @@ jobs:
           git config user.email "actions@github.com"
           git add .github/last_yt_version.txt
           git commit -m "chore: bump tracked YT version to ${{ steps.check.outputs.yt_version }}"
+          git pull --rebase
           git push
 
       - name: Create GitHub Issue for new version
