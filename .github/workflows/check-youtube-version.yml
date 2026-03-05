@@ -1,0 +1,77 @@
+name: Check YouTube Version
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # every 6 hours
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch latest YouTube App Store version
+        id: check
+        run: |
+          LATEST=$(curl -s "https://itunes.apple.com/lookup?bundleId=com.google.ios.youtube&country=us" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['results'][0]['version'])")
+          echo "Latest YouTube: $LATEST"
+
+          STORED=$(cat .github/last_yt_version.txt 2>/dev/null || echo "0")
+          echo "Stored: $STORED"
+
+          if [ "$LATEST" != "$STORED" ]; then
+            echo "new_version=true" >> $GITHUB_OUTPUT
+            echo "yt_version=$LATEST" >> $GITHUB_OUTPUT
+          else
+            echo "new_version=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Save new version
+        if: steps.check.outputs.new_version == 'true'
+        run: |
+          echo "${{ steps.check.outputs.yt_version }}" > .github/last_yt_version.txt
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .github/last_yt_version.txt
+          git commit -m "chore: bump tracked YT version to ${{ steps.check.outputs.yt_version }}"
+          git push
+
+      - name: Create GitHub Issue for new version
+        if: steps.check.outputs.new_version == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Ensure label exists
+          gh label create "new-yt-version" --color "0075ca" --description "New YouTube version detected" 2>/dev/null || true
+
+          # Close any previous "New YouTube version" issues
+          gh issue list --label "new-yt-version" --state open --json number -q '.[].number' | while read NUM; do
+            gh issue close "$NUM" --comment "Superseded by YouTube ${{ steps.check.outputs.yt_version }}"
+          done
+
+          gh issue create \
+            --title "New YouTube version detected: ${{ steps.check.outputs.yt_version }}" \
+            --label "new-yt-version" \
+            --body "## New YouTube Version: ${{ steps.check.outputs.yt_version }}
+
+          A new YouTube version has been detected on the App Store.
+
+          ### Next steps
+          1. Obtain a decrypted IPA for YouTube ${{ steps.check.outputs.yt_version }}
+          2. Upload it and get a direct download URL
+          3. Trigger the build workflow:
+             - Go to **Actions** > **Build and Release YTLitePlus** > **Run workflow**
+             - Paste the decrypted IPA URL in \`decrypted_youtube_url\`
+             - Enable \`catbox_upload\` to auto-update the AltStore source
+             - Enable \`create_release\` for a draft GitHub release
+
+          Or use the CLI:
+          \`\`\`bash
+          gh workflow run buildapp.yml -f decrypted_youtube_url=\"YOUR_IPA_URL\" -f catbox_upload=true -f create_release=true
+          \`\`\`"

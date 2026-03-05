@@ -57,6 +57,7 @@ jobs:
     runs-on: macos-15-intel
     permissions:
       contents: write
+      issues: write
 
     steps:
       - name: Checkout
@@ -245,6 +246,15 @@ jobs:
               "yt_version": "${{ env.YT_VERSION }}"
             }
           }'
+
+      - name: Close version detection issue
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue list --label "new-yt-version" --state open --json number -q '.[].number' | while read NUM; do
+            gh issue close "$NUM" --comment "Build completed for YouTube ${{ env.YT_VERSION }} (YTLite ${{ env.YTLITE_VERSION }})"
+          done
 
       - name: Job Summary
         run: |
